@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>DNS Research Disclaimer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <h1>🔒 DNS Scan Disclaimer</h1>
+  <p>
+    As part of an academic and non-intrusive cybersecurity research project, we are performing
+    an <strong>automated DNS scan</strong> targeting domains within the <code>.nl</code> top-level domain (TLD).
+    The <strong>primary goal</strong> of this research is to identify and map subdomain structures
+    exposed through DNS mechanisms. A <strong>secondary objective</strong> is to evaluate the prevalence and usage
+    of <strong>DNSSEC</strong>, including <strong>NSEC</strong> and <strong>NSEC3</strong> implementations.
+  </p>
+
+  <h2>🔍 Scan Details</h2>
+  <ul>
+    <li><strong>Type of research:</strong> DNS resolution only (no exploitation or unauthorized access)</li>
+    <li><strong>Techniques:</strong> DNS queries made directly or via <em>Google Public DNS</em> (8.8.8.8 / 8.8.4.4)</li>
+    <li><strong>Data collected:</strong> Public DNS records, including subdomains exposed via NSEC/NSEC3</li>
+    <li><strong>Per-domain traffic limit:</strong> Max. 50 DNS requests per second</li>
+    <li><strong>Scope:</strong> Domains under the <code>.nl</code> TLD only</li>
+    <li><strong>Purpose:</strong> Increase awareness of subdomain exposure risks and DNSSEC-related privacy implications</li>
+  </ul>
+
+  <h2>📫 Opt-Out</h2>
+  <p>
+    If you do not wish for your domain or DNS infrastructure to be included in this study,
+    you may request an <strong>opt-out</strong> at any time. Please contact us at:
+  </p>
+  <div class="email">
+    dns-research-optout@example.org
+  </div>
+  <p>Include the relevant domain(s) in your message.</p>
+
+  <h2>❓ FAQ – Frequently Asked Questions</h2>
+
+  <h3>1. Is this scan harmful to my systems or infrastructure?</h3>
+  <p>
+    No. Only standard DNS queries are made through Google DNS. There are no penetration attempts,
+    port scans, or unauthorized access attempts.
+  </p>
+
+  <h3>2. Why use Google DNS?</h3>
+  <p>
+    We use Google Public DNS because it provides robust caching. This significantly reduces the number of 
+    duplicate queries reaching authoritative servers, minimizing load and making the scan more efficient 
+    and respectful of infrastructure.
+  </p>
+
+  <h3>3. Are any personal or sensitive data collected?</h3>
+  <p>
+    No. Only publicly available DNS data is collected. We do not gather or process personal data
+    or confidential business information.
+  </p>
+
+  <h3>4. Will the research results be published?</h3>
+  <p>
+    Yes. Aggregated, anonymized findings will be made publicly available after the study concludes.
+    If you're interested in being notified, feel free to get in touch via the opt-out email address.
+  </p>
+
+  <h3>5. What are NSEC and NSEC3, and why are they relevant?</h3>
+  <p>
+    NSEC and NSEC3 are DNSSEC mechanisms that help prove a subdomain does not exist.
+    However, depending on implementation, they may inadvertently reveal existing subdomains 
+    (<em>zone walking</em>), which can present privacy and security concerns.
+  </p>
+
+</body>
+</html>

@@ -1,0 +1,9 @@
+. {
+    cache
+    forward . 8.8.8.8 8.8.4.4 {
+        policy round_robin
+        max_concurrent 1500
+    }
+    log
+    errors    
+}
