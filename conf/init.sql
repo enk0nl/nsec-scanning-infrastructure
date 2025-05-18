@@ -1,52 +1,52 @@
 CREATE TABLE scans (
-	id SERIAL PRIMARY KEY,
-	start_time TIMESTAMP NOT NULL,
-	end_time TIMESTAMP,
-	initiated_by VARCHAR(255),
-	zone VARCHAR(255) NOT NULL,
-	scan_type VARCHAR(50),
-	zone_type VARCHAR(50),
-	exitcode VARCHAR(10)
+    id SERIAL PRIMARY KEY,
+    start_time TIMESTAMP NOT NULL,
+    end_time TIMESTAMP,
+    initiated_by VARCHAR(255),
+    zone VARCHAR(255) NOT NULL,
+    scan_type VARCHAR(50),
+    zone_type VARCHAR(50),
+    exitcode VARCHAR(10)
 );
 
 CREATE TABLE nsec_resource_records (
-	id SERIAL PRIMARY KEY,
-	scan_id INTEGER REFERENCES scans(id) ON DELETE CASCADE,
-	owner VARCHAR(255),
-	next_owner VARCHAR(255),
-	ttl INTEGER,
-	class VARCHAR(10),
-	types VARCHAR(255),
-	discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id SERIAL PRIMARY KEY,
+    scan_id INTEGER REFERENCES scans(id) ON DELETE CASCADE,
+    owner VARCHAR(255),
+    next_owner VARCHAR(255),
+    ttl INTEGER,
+    class VARCHAR(10),
+    types VARCHAR(255),
+    discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE nsec3_resource_records (
-	id SERIAL PRIMARY KEY,
-	scan_id INTEGER REFERENCES scans(id) ON DELETE CASCADE,
-	owner VARCHAR(255) NOT NULL,
-	hashed_owner VARCHAR(255) NOT NULL,
-	next_hashed_owner VARCHAR(255),
-	ttl INTEGER,
-	class VARCHAR(10),
-	types VARCHAR(255),
-	discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id SERIAL PRIMARY KEY,
+    scan_id INTEGER REFERENCES scans(id) ON DELETE CASCADE,
+    owner VARCHAR(255) NOT NULL,
+    hashed_owner VARCHAR(255) NOT NULL,
+    next_hashed_owner VARCHAR(255),
+    ttl INTEGER,
+    class VARCHAR(10),
+    types VARCHAR(255),
+    discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE nsec3_parameters (
-	id SERIAL PRIMARY KEY,
-	scan_id INTEGER REFERENCES scans(id) ON DELETE CASCADE,
-	hash_algorithm INTEGER,
-	flags INTEGER,
-	iterations INTEGER,
-	salt VARCHAR(255)
+    id SERIAL PRIMARY KEY,
+    scan_id INTEGER REFERENCES scans(id) ON DELETE CASCADE,
+    hash_algorithm INTEGER,
+    flags INTEGER,
+    iterations INTEGER,
+    salt VARCHAR(255)
 );
 
 CREATE TABLE logs (
-	id SERIAL PRIMARY KEY,
-	scan_id INTEGER REFERENCES scans(id) ON DELETE SET NULL,
-	timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-	message TEXT,
-	severity VARCHAR(20) CHECK (severity IN ('INFO', 'WARNING', 'ERROR', 'CRITICAL'))
+    id SERIAL PRIMARY KEY,
+    scan_id INTEGER REFERENCES scans(id) ON DELETE SET NULL,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    message TEXT,
+    severity VARCHAR(20) CHECK (severity IN ('INFO', 'WARNING', 'ERROR', 'CRITICAL'))
 );
 
 CREATE MATERIALIZED VIEW domains_all AS SELECT DISTINCT REGEXP_REPLACE(zone, '\.$', '') AS domain FROM scans;
@@ -72,6 +72,10 @@ CREATE MATERIALIZED VIEW domains_nsec3_avoid_lies AS SELECT * FROM domains_nsec3
 CREATE INDEX idx_domains_nsec3_avoid_lies ON domains_nsec3_avoid_lies(domain);
 
 CREATE VIEW stats_total_scans AS SELECT COUNT(id) from scans;
+CREATE VIEW stats_total_nsec_scans AS SELECT COUNT(*) FROM scans WHERE scan_type = 'nsec';
+CREATE VIEW stats_nsec_zones_walked AS SELECT COUNT(DISTINCT zone) FROM scans WHERE scan_type = 'nsec' OR (scan_type = 'auto' AND 'zone_type' = 'nsec');
+CREATE VIEW stats_nsec3_zones_walked AS SELECT COUNT(DISTINCT zone) FROM scans WHERE scan_type = 'nsec3' OR (scan_type = 'auto' AND 'zone_type' = 'nsec3');
+CREATE VIEW stats_total_zones_walked AS SELECT COUNT(DISTINCT zone) FROM scans WHERE scan_type = 'nsec' OR scan_type = 'nsec3' OR (scan_type = 'auto' AND ('zone_type' = 'nsec3' OR 'zone_type' = 'nsec'));
 
 CREATE VIEW stats_total_scans_by_zone_type AS SELECT zone_type,COUNT(id) FROM scans 
     GROUP BY zone_type 
@@ -121,3 +125,71 @@ CREATE VIEW stats_domains_by_zone_type AS
             ELSE 5
         END;
 
+CREATE MATERIALIZED VIEW subdomains_all_by_owner AS SELECT 
+    d.owner,
+    subs[i] AS subdomain
+FROM (
+    SELECT DISTINCT owner
+    FROM nsec_resource_records
+) d
+CROSS JOIN LATERAL (
+    SELECT string_to_array(d.owner, '.') AS full_parts
+) p
+CROSS JOIN LATERAL (
+    SELECT p.full_parts[1:array_length(p.full_parts, 1) - 3] AS subs
+) sliced
+CROSS JOIN LATERAL generate_subscripts(sliced.subs, 1) AS gs(i);
+
+CREATE MATERIALIZED VIEW subdomains_a_aaaa_by_owner AS SELECT 
+    d.owner,
+    subs[i] AS subdomain
+FROM (
+    SELECT DISTINCT owner
+    FROM nsec_resource_records
+    WHERE (
+        types LIKE '{A%' 
+        OR types LIKE '%,A%' 
+        OR types LIKE '{AAAA%' 
+        OR types LIKE '%,AAAA%'
+    )
+) d
+CROSS JOIN LATERAL (
+    SELECT string_to_array(d.owner, '.') AS full_parts
+) p
+CROSS JOIN LATERAL (
+    SELECT p.full_parts[1:array_length(p.full_parts, 1) - 3] AS subs
+) sliced
+CROSS JOIN LATERAL generate_subscripts(sliced.subs, 1) AS gs(i);
+
+CREATE VIEW subdomains_all_by_occurrance AS
+SELECT 
+    subdomain,
+    COUNT(*)
+FROM subdomains_all_by_owner
+GROUP BY subdomain
+ORDER BY count DESC, subdomain;
+
+CREATE VIEW subdomains_a_aaaa_by_occurrance AS
+SELECT 
+    subdomain,
+    COUNT(*)
+FROM subdomains_a_aaaa_by_owner
+GROUP BY subdomain
+ORDER BY count DESC, subdomain;
+
+CREATE VIEW stats_total_owners AS SELECT COUNT(DISTINCT OWNER) FROM nsec_resource_records;
+CREATE VIEW stats_total_subdomains AS SELECT COUNT(*) FROM subdomains_all_by_occurrance;
+
+CREATE MATERIALIZED VIEW nameservers_black_lies AS
+SELECT DISTINCT
+    TRIM(
+        TRAILING '.' FROM
+        SUBSTRING(message FROM '\(([^\s)]+(?:\.[^\s)]+)+)')
+    ) AS nameserver
+FROM logs
+WHERE message LIKE '%nameserver:%'
+    AND scan_id IN (
+        SELECT DISTINCT scan_id
+        FROM logs
+        WHERE message LIKE '%black lies%'
+    );
