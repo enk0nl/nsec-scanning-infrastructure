@@ -82,8 +82,13 @@ CREATE VIEW stats_nsec_zones_walked AS SELECT COUNT(DISTINCT zone) FROM scans WH
 CREATE VIEW stats_nsec3_zones_walked AS SELECT COUNT(DISTINCT zone) FROM scans WHERE scan_type = 'nsec3' OR (scan_type = 'auto' AND 'zone_type' = 'nsec3');
 CREATE VIEW stats_total_zones_walked AS SELECT COUNT(DISTINCT zone) FROM scans WHERE scan_type = 'nsec' OR scan_type = 'nsec3' OR (scan_type = 'auto' AND ('zone_type' = 'nsec3' OR 'zone_type' = 'nsec'));
 
-CREATE VIEW stats_total_scans_by_zone_type AS SELECT zone_type,COUNT(id) FROM scans 
-    GROUP BY zone_type 
+CREATE VIEW stats_nsec_zones_largest AS SELECT scans.id AS scan_id,start_time,zone,COUNT(*) FROM scans INNER JOIN nsec_resource_records ON scans.id = nsec_resource_records.scan_id WHERE scan_type = 'nsec' OR (scan_type = 'auto' AND zone_type = 'nsec') GROUP BY zone,scans.id,start_time ORDER BY count DESC LIMIT 50;
+CREATE VIEW stats_nsec3_zones_largest AS SELECT scans.id AS scan_id,start_time,zone,COUNT(*) FROM scans INNER JOIN nsec3_resource_records ON scans.id = nsec3_resource_records.scan_id WHERE scan_type = 'nsec3' OR (scan_type = 'auto' AND zone_type = 'nsec3')  GROUP BY zone,scans.id,start_time ORDER BY count DESC LIMIT 50;
+CREATE VIEW stats_nsec_zones_most_logs AS SELECT scans.id AS scan_id,start_time,zone,COUNT(*) FROM scans INNER JOIN logs ON scans.id = logs.scan_id WHERE scan_type = 'nsec'  OR (scan_type = 'auto' AND zone_type = 'nsec') GROUP BY zone,scans.id,start_time ORDER BY count DESC LIMIT 50;
+CREATE VIEW stats_nsec3_zones_most_logs AS SELECT scans.id AS scan_id,start_time,zone,COUNT(*) FROM scans INNER JOIN logs ON scans.id = logs.scan_id WHERE scan_type = 'nsec3'  OR (scan_type = 'auto' AND zone_type = 'nsec3') GROUP BY zone,scans.id,start_time ORDER BY count DESC LIMIT 50;
+
+CREATE VIEW stats_total_scans_by_zone_type AS SELECT zone_type,COUNT(id) FROM scans
+    GROUP BY zone_type
     ORDER BY
         CASE zone_type
             WHEN 'nsec3' THEN 1
@@ -102,7 +107,7 @@ CREATE VIEW stats_domains_by_zone_type AS
             zone_type,
             ROW_NUMBER() OVER (
                 PARTITION BY zone
-                ORDER BY 
+                ORDER BY
                     CASE zone_type
                         WHEN 'nsec3' THEN 1
                         WHEN 'nsec' THEN 2
@@ -130,7 +135,7 @@ CREATE VIEW stats_domains_by_zone_type AS
             ELSE 5
         END;
 
-CREATE MATERIALIZED VIEW subdomains_all_by_owner AS SELECT 
+CREATE MATERIALIZED VIEW subdomains_all_by_owner AS SELECT
     d.owner,
     subs[i] AS subdomain
 FROM (
@@ -145,16 +150,16 @@ CROSS JOIN LATERAL (
 ) sliced
 CROSS JOIN LATERAL generate_subscripts(sliced.subs, 1) AS gs(i);
 
-CREATE MATERIALIZED VIEW subdomains_a_aaaa_by_owner AS SELECT 
+CREATE MATERIALIZED VIEW subdomains_a_aaaa_by_owner AS SELECT
     d.owner,
     subs[i] AS subdomain
 FROM (
     SELECT DISTINCT owner
     FROM nsec_resource_records
     WHERE (
-        types LIKE '{A%' 
-        OR types LIKE '%,A%' 
-        OR types LIKE '{AAAA%' 
+        types LIKE '{A%'
+        OR types LIKE '%,A%'
+        OR types LIKE '{AAAA%'
         OR types LIKE '%,AAAA%'
     )
 ) d
@@ -167,7 +172,7 @@ CROSS JOIN LATERAL (
 CROSS JOIN LATERAL generate_subscripts(sliced.subs, 1) AS gs(i);
 
 CREATE VIEW subdomains_all_by_occurrance AS
-SELECT 
+SELECT
     subdomain,
     COUNT(*)
 FROM subdomains_all_by_owner
@@ -175,7 +180,7 @@ GROUP BY subdomain
 ORDER BY count DESC, subdomain;
 
 CREATE VIEW subdomains_a_aaaa_by_occurrance AS
-SELECT 
+SELECT
     subdomain,
     COUNT(*)
 FROM subdomains_a_aaaa_by_owner
