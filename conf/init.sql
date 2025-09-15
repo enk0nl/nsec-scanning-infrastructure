@@ -171,6 +171,29 @@ CROSS JOIN LATERAL (
 ) sliced
 CROSS JOIN LATERAL generate_subscripts(sliced.subs, 1) AS gs(i);
 
+CREATE MATERIALIZED VIEW subdomains_a_aaaa_cname_by_owner AS SELECT
+    d.owner,
+    subs[i] AS subdomain
+FROM (
+    SELECT DISTINCT owner
+    FROM nsec_resource_records
+    WHERE (
+        types LIKE '{A%'
+        OR types LIKE '%,A%'
+        OR types LIKE '{AAAA%'
+        OR types LIKE '%,AAAA%'
+        OR types LIKE '{CNAME%'
+        OR types LIKE '%,CNAME%'
+    )
+) d
+CROSS JOIN LATERAL (
+    SELECT string_to_array(d.owner, '.') AS full_parts
+) p
+CROSS JOIN LATERAL (
+    SELECT p.full_parts[1:array_length(p.full_parts, 1) - 3] AS subs
+) sliced
+CROSS JOIN LATERAL generate_subscripts(sliced.subs, 1) AS gs(i);
+
 CREATE VIEW subdomains_all_by_occurrance AS
 SELECT
     subdomain,
@@ -184,6 +207,14 @@ SELECT
     subdomain,
     COUNT(*)
 FROM subdomains_a_aaaa_by_owner
+GROUP BY subdomain
+ORDER BY count DESC, subdomain;
+
+CREATE VIEW subdomains_a_aaaa_cname_by_occurrance AS
+SELECT
+    subdomain,
+    COUNT(*)
+FROM subdomains_a_aaaa_cname_by_owner
 GROUP BY subdomain
 ORDER BY count DESC, subdomain;
 
@@ -203,3 +234,43 @@ WHERE message LIKE '%nameserver:%'
         FROM logs
         WHERE message LIKE '%black lies%'
     );
+
+CREATE VIEW subdomains_all_cleaned AS
+SELECT subdomain FROM subdomains_all_by_owner 
+-- Exclude common DNS names from ISP zones
+WHERE NOT (owner LIKE '%.solcon.nl.' AND (owner LIKE 'dsl-%' OR owner LIKE 'cable-%' OR owner LIKE 'colo-%' OR owner LIKE 'customers-%' OR owner LIKE 'ffth-%' OR owner LIKE 'cc-%' OR owner LIKE '%en-%' OR owner LIKE 'fiber-%' OR owner LIKE 'ftth-%' OR owner LIKE 'customer-%'))
+AND NOT (owner LIKE '%.chello.nl.' AND (owner LIKE 'cgmd%' OR owner LIKE 'hm00br%' OR owner LIKE 'hv00br%'))
+-- Exclude IP addresses broken up by hyphens or dots, this also excludes in-addr-arpa records
+AND NOT owner ~ $$((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])-){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$$
+AND NOT owner ~ $$((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$$
+-- Exclude hex-encoded 16 character labels, could do some entropy analysis here to also exclude base64 encoding, encryption, compression and other random junk
+AND NOT owner ~ $$[a-f0-9]{16}$$
+-- Exclude white/black lies artifacts
+AND NOT owner LIKE '%\x00%'
+-- Exclude RFC 1035 uncompliant subdomains (but keep underscore, since it's commonly used today)
+-- "The labels must follow the rules for ARPANET host names.
+--  They must start with a letter, end with a letter or digit, and have as interiorcharacters only letters, digits, and hyphen.
+--  There are also some restrictions on the length. Labels must be 63 characters or less."
+AND NOT subdomain ~ '[^a-z0-9\-_]'
+AND NOT subdomain ~ '(^-|-$)'
+AND NOT length(subdomain) > 63;
+
+CREATE VIEW subdomains_a_aaaa_cleaned AS
+SELECT subdomain FROM subdomains_a_aaaa_by_owner 
+-- Exclude common DNS names from ISP zones
+WHERE NOT (owner LIKE '%.solcon.nl.' AND (owner LIKE 'dsl-%' OR owner LIKE 'cable-%' OR owner LIKE 'colo-%' OR owner LIKE 'customers-%' OR owner LIKE 'ffth-%' OR owner LIKE 'cc-%' OR owner LIKE '%en-%' OR owner LIKE 'fiber-%' OR owner LIKE 'ftth-%' OR owner LIKE 'customer-%'))
+AND NOT (owner LIKE '%.chello.nl.' AND (owner LIKE 'cgmd%' OR owner LIKE 'hm00br%' OR owner LIKE 'hv00br%'))
+-- Exclude IP addresses broken up by hyphens or dots, this also excludes in-addr-arpa records
+AND NOT owner ~ $$((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])-){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$$
+AND NOT owner ~ $$((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$$
+-- Exclude hex-encoded 16 character labels, could do some entropy analysis here to also exclude base64 encoding, encryption, compression and other random junk
+AND NOT owner ~ $$[a-f0-9]{16}$$
+-- Exclude white/black lies artifacts
+AND NOT owner LIKE '%\x00%'
+-- Exclude RFC 1035 uncompliant subdomains (but keep underscore, since it's commonly used today)
+-- "The labels must follow the rules for ARPANET host names.
+--  They must start with a letter, end with a letter or digit, and have as interiorcharacters only letters, digits, and hyphen.
+--  There are also some restrictions on the length. Labels must be 63 characters or less."
+AND NOT subdomain ~ '[^a-z0-9\-_]'
+AND NOT subdomain ~ '(^-|-$)'
+AND NOT length(subdomain) > 63;
