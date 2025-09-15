@@ -218,6 +218,71 @@ FROM subdomains_a_aaaa_cname_by_owner
 GROUP BY subdomain
 ORDER BY count DESC, subdomain;
 
+CREATE MATERIALIZED VIEW subdomains_leftmost_all_by_owner AS
+SELECT DISTINCT
+    n.owner,
+    parts[1] AS subdomain
+FROM nsec_resource_records n,
+LATERAL string_to_array(n.owner, '.') AS parts
+WHERE array_length(parts, 1) >= 4
+AND n.owner IS NOT NULL;
+
+CREATE MATERIALIZED VIEW subdomains_leftmost_a_aaaa_by_owner AS
+SELECT DISTINCT
+    n.owner,
+    parts[1] AS subdomain
+FROM nsec_resource_records n,
+LATERAL string_to_array(n.owner, '.') AS parts
+    WHERE (
+        n.types LIKE '{A%'
+        OR n.types LIKE '%,A%'
+        OR n.types LIKE '{AAAA%'
+        OR n.types LIKE '%,AAAA%'
+    )
+AND array_length(parts, 1) >= 4
+AND n.owner IS NOT NULL;
+
+CREATE MATERIALIZED VIEW subdomains_leftmost_a_aaaa_cname_by_owner AS
+SELECT DISTINCT
+    n.owner,
+    parts[1] AS subdomain
+FROM nsec_resource_records n,
+LATERAL string_to_array(n.owner, '.') AS parts
+    WHERE (
+	types LIKE '{A%'
+	OR types LIKE '%,A%'
+	OR types LIKE '{AAAA%'
+	OR types LIKE '%,AAAA%'
+	OR types LIKE '{CNAME%'
+	OR types LIKE '%,CNAME%'
+    )
+AND array_length(parts, 1) >= 4
+AND n.owner IS NOT NULL;
+
+CREATE VIEW subdomains_leftmost_all_by_occurrance AS
+SELECT
+    subdomain,
+    COUNT(*)
+FROM subdomains_leftmost_all_by_owner
+GROUP BY subdomain
+ORDER BY count DESC, subdomain;
+                
+CREATE VIEW subdomains_leftmost_a_aaaa_by_occurrance AS
+SELECT
+    subdomain,
+    COUNT(*)
+FROM subdomains_leftmost_a_aaaa_by_owner
+GROUP BY subdomain
+ORDER BY count DESC, subdomain;
+
+CREATE VIEW subdomains_leftmost_a_aaaa_cname_by_occurrance AS
+SELECT
+    subdomain,
+    COUNT(*)
+FROM subdomains_leftmost_a_aaaa_cname_by_owner
+GROUP BY subdomain
+ORDER BY count DESC, subdomain;
+
 CREATE VIEW stats_total_owners AS SELECT COUNT(DISTINCT OWNER) FROM nsec_resource_records;
 CREATE VIEW stats_total_subdomains AS SELECT COUNT(*) FROM subdomains_all_by_occurrance;
 
