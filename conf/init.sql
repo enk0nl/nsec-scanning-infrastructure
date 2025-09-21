@@ -266,7 +266,7 @@ SELECT
 FROM subdomains_leftmost_all_by_owner
 GROUP BY subdomain
 ORDER BY count DESC, subdomain;
-                
+
 CREATE VIEW subdomains_leftmost_a_aaaa_by_occurrance AS
 SELECT
     subdomain,
@@ -300,3 +300,42 @@ WHERE message LIKE '%nameserver:%'
         WHERE message LIKE '%black lies%'
     );
 
+CREATE MATERIALIZED VIEW subdomains_all_cleaned_by_etld AS
+SELECT
+    -- Leftmost subdomain
+    subdomain,
+    -- Sub-subdomains
+    CASE
+        WHEN array_length(parts,1) > 2
+        THEN array_to_string(parts[1:array_length(parts,1)-2], '.')
+        ELSE NULL
+    END AS labels_before_etld,
+    -- The etld (domain name + .nl)
+    parts[array_length(parts,1)-1] || '.' || parts[array_length(parts,1)] AS etld,
+    -- Zone size (count of etld), so we can exclude zones of a specific size
+    COUNT(*) OVER (PARTITION BY parts[array_length(parts,1)-1] || '.' || parts[array_length(parts,1)]) AS etld_count,
+    -- Hashed etld, this will make it easier to group records later
+    HASHTEXTEXTENDED(parts[array_length(parts,1)-1] || '.' || parts[array_length(parts,1)], 0) AS etld_hash
+FROM subdomains_leftmost_all_by_owner
+CROSS JOIN LATERAL string_to_array(TRIM(TRAILING '.' FROM owner), '.') AS parts
+-- Exclude IP addresses broken up by hyphens or dots, this also excludes in-addr-arpa records
+WHERE NOT owner ~ $$((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])-){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$$
+AND NOT owner ~ $$((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$$
+-- Could do some entropy analysis here, to also exclude base64 encoding, encryption, compression and other random junk.
+-- But I'm not too concerned, as high entropy strings will have a low probability in the PCFG.
+-- Exclude GUIDs
+AND NOT owner ~ $$[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$$
+-- Exclude hex-encoded 16 character labels.
+AND NOT owner ~ $$[a-f0-9]{16}$$
+-- Exclude alphanumeric 32 character labels
+AND NOT owner ~ $$[a-z0-9]{32}$$
+-- Exclude white/black lies artifacts
+AND NOT owner LIKE '%\x00%'
+-- Exclude RFC 1035 uncompliant subdomains.
+-- "The labels must follow the rules for ARPANET host names.
+--  They must start with a letter, end with a letter or digit, and have as interior characters only letters, digits, and hyphen.
+--  There are also some restrictions on the length. Labels must be 63 characters or less."
+-- Also include underscore, for RFC 6763 and because it's a common mistake by admins.
+AND NOT subdomain ~ '[^a-z0-9\-_]'
+AND NOT subdomain ~ '(^-|-$)'
+AND NOT length(subdomain) > 63;
