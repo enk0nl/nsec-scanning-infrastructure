@@ -305,11 +305,7 @@ SELECT
     -- Leftmost subdomain
     subdomain,
     -- Sub-subdomains
-    CASE
-        WHEN array_length(parts,1) > 2
-        THEN array_to_string(parts[1:array_length(parts,1)-2], '.')
-        ELSE NULL
-    END AS labels_before_etld,
+    lb.labels_before_etld,
     -- The etld (domain name + .nl)
     parts[array_length(parts,1)-1] || '.' || parts[array_length(parts,1)] AS etld,
     -- Zone size (count of etld), so we can exclude zones of a specific size
@@ -318,24 +314,43 @@ SELECT
     HASHTEXTEXTENDED(parts[array_length(parts,1)-1] || '.' || parts[array_length(parts,1)], 0) AS etld_hash
 FROM subdomains_leftmost_all_by_owner
 CROSS JOIN LATERAL string_to_array(TRIM(TRAILING '.' FROM owner), '.') AS parts
+CROSS JOIN LATERAL (
+  SELECT CASE
+           WHEN array_length(parts,1) > 2
+           THEN array_to_string(parts[1:array_length(parts,1)-2], '.')
+           ELSE NULL
+         END AS labels_before_etld
+) AS lb
 -- Exclude IP addresses broken up by hyphens or dots, this also excludes in-addr-arpa records
-WHERE NOT owner ~ $$((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])-){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$$
-AND NOT owner ~ $$((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$$
+WHERE NOT COALESCE(lb.labels_before_etld, '') ~ $$((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])-){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$$
+AND NOT COALESCE(lb.labels_before_etld, '') ~ $$((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$$
 -- Could do some entropy analysis here, to also exclude base64 encoding, encryption, compression and other random junk.
--- But I'm not too concerned, as high entropy strings will have a low probability in the PCFG.
 -- Exclude GUIDs
-AND NOT owner ~ $$[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$$
+AND NOT COALESCE(lb.labels_before_etld, '') ~ $$[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$$
 -- Exclude hex-encoded 16 character labels.
-AND NOT owner ~ $$[a-f0-9]{16}$$
+AND NOT COALESCE(lb.labels_before_etld, '') ~ $$[a-f0-9]{16}$$
 -- Exclude alphanumeric 32 character labels
-AND NOT owner ~ $$[a-z0-9]{32}$$
+AND NOT COALESCE(lb.labels_before_etld, '') ~ $$[a-z0-9]{32}$$
 -- Exclude white/black lies artifacts
-AND NOT owner LIKE '%\x00%'
--- Exclude RFC 1035 uncompliant subdomains.
+AND NOT COALESCE(lb.labels_before_etld, '') LIKE '%\x00%'
+-- Enforce length on labels_before_etld segment only (allow NULL = no sub-subdomains)
+AND (lb.labels_before_etld IS NULL OR length(lb.labels_before_etld) <= 253)
+-- Exclude domains with RFC 1035 uncompliant labels (applied only to labels_before_etld)
 -- "The labels must follow the rules for ARPANET host names.
 --  They must start with a letter, end with a letter or digit, and have as interior characters only letters, digits, and hyphen.
 --  There are also some restrictions on the length. Labels must be 63 characters or less."
 -- Also include underscore, for RFC 6763 and because it's a common mistake by admins.
-AND NOT subdomain ~ '[^a-z0-9\-_]'
-AND NOT subdomain ~ '(^-|-$)'
-AND NOT length(subdomain) > 63;
+AND NOT EXISTS (
+    SELECT 1
+    FROM unnest(
+        CASE
+            WHEN array_length(parts,1) > 2
+            THEN parts[1:array_length(parts,1)-2]
+            ELSE ARRAY[]::text[]
+        END
+    ) AS p
+    WHERE
+        lower(p) ~ '[^a-z0-9_-]'
+        OR p ~ '(^-|-$)'
+        OR length(p) > 63
+);
