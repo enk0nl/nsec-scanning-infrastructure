@@ -333,13 +333,12 @@ AND NOT COALESCE(lb.labels_before_etld, '') ~ $$[a-f0-9]{16}$$
 AND NOT COALESCE(lb.labels_before_etld, '') ~ $$[a-z0-9]{32}$$
 -- Exclude white/black lies artifacts
 AND NOT COALESCE(lb.labels_before_etld, '') LIKE '%\x00%'
--- Enforce length on labels_before_etld segment only (allow NULL = no sub-subdomains)
-AND (lb.labels_before_etld IS NULL OR length(lb.labels_before_etld) <= 253)
+-- Enforce total FQDN length (subdomain + etld) ≤ 253 characters (RFC 1035)
+AND length(TRIM(TRAILING '.' FROM owner)) <= 253
 -- Exclude domains with RFC 1035 uncompliant labels (applied only to labels_before_etld)
 -- "The labels must follow the rules for ARPANET host names.
 --  They must start with a letter, end with a letter or digit, and have as interior characters only letters, digits, and hyphen.
 --  There are also some restrictions on the length. Labels must be 63 characters or less."
--- Also include underscore, for RFC 6763 and because it's a common mistake by admins.
 AND NOT EXISTS (
     SELECT 1
     FROM unnest(
@@ -350,7 +349,7 @@ AND NOT EXISTS (
         END
     ) AS p
     WHERE
-        lower(p) ~ '[^a-z0-9_-]'
+        lower(p) ~ '[^a-z0-9-]'
         OR p ~ '(^-|-$)'
         OR length(p) > 63
 );
