@@ -322,8 +322,8 @@ CROSS JOIN LATERAL (
          END AS labels_before_etld
 ) AS lb
 -- Exclude IP addresses broken up by hyphens or dots, this also excludes in-addr-arpa records
-WHERE NOT COALESCE(lb.labels_before_etld, '') ~ $$((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])-){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$$
-AND NOT COALESCE(lb.labels_before_etld, '') ~ $$((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$$
+WHERE NOT COALESCE(lb.labels_before_etld, '') ~ $$((0*(25[0-5]|2[0-4][0-9]|1[0-9]{2}|0*[0-9]{1,2}))-){3}0*(25[0-5]|2[0-4][0-9]|1[0-9]{2}|0*[0-9]{1,2})$$
+AND NOT COALESCE(lb.labels_before_etld, '') ~ $$((0*(25[0-5]|2[0-4][0-9]|1[0-9]{2}|0*[0-9]{1,2}))\.){3}0*(25[0-5]|2[0-4][0-9]|1[0-9]{2}|0*[0-9]{1,2})$$
 -- Could do some entropy analysis here, to also exclude base64 encoding, encryption, compression and other random junk.
 -- Exclude GUIDs
 AND NOT COALESCE(lb.labels_before_etld, '') ~ $$[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$$
