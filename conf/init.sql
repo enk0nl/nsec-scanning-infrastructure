@@ -308,29 +308,32 @@ SELECT
     CASE WHEN array_length(parts,1) > 2 THEN array_to_string(parts[1:array_length(parts,1)-2], '.') ELSE NULL END AS labels_before_etld,
     -- The eTLD (domain name + .nl)
     parts[array_length(parts,1)-1] || '.' || parts[array_length(parts,1)] AS etld,
-    -- Zone size (count of eTLD), so we can exclude large zones if needed
+    -- Zone size (count of etld), so we can exclude zones of a specific size
     COUNT(*) OVER (PARTITION BY parts[array_length(parts,1)-1] || '.' || parts[array_length(parts,1)]) AS etld_count,
-    -- Hashed eTLD for grouping later
+    -- Hashed etld, this will make it easier to group records later
     hashtextextended(parts[array_length(parts,1)-1] || '.' || parts[array_length(parts,1)],0) AS etld_hash
 FROM subdomains_leftmost_all_by_owner
 CROSS JOIN LATERAL string_to_array(TRIM(TRAILING '.' FROM owner), '.') AS parts
 WHERE
-    -- Enforce total FQDN length ≤ 253 characters (RFC 1035)
+    -- Enforce total FQDN length (subdomain + etld) ≤ 253 characters (RFC 1035)
     length(TRIM(TRAILING '.' FROM owner)) <= 253
     -- Apply all exclusions to *only* the leftmost label
     AND (
-        -- Exclude hyphen-separated IP addresses (like 192-168-1-1)
+        -- Exclude IP addresses broken up by hyphens
         subdomain !~ $$((0*(25[0-5]|2[0-4][0-9]|1[0-9]{2}|0*[0-9]{1,2}))-){3}0*(25[0-5]|2[0-4][0-9]|1[0-9]{2}|0*[0-9]{1,2})$$
+        -- Could do some entropy analysis here, to also exclude base64 encoding, encryption, compression and other random junk.
         -- Exclude GUIDs
         AND subdomain !~ $$[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$$
-        -- Exclude 16-character hex strings
+        -- Exclude hex-encoded 16 character labels
         AND subdomain !~ $$[a-f0-9]{16}$$
-        -- Exclude 32-character alphanumeric strings
+        -- Exclude alphanumeric 32 character labels
         AND subdomain !~ $$[a-z0-9]{32}$$
-        -- Exclude NULL byte artifacts
+        -- Exclude white/black lies artifacts
         AND subdomain NOT LIKE '%\x00%'
-        -- RFC 1035 label compliance for the leftmost label only: must start with a letter, end with letter/digit, contain only letters/digits/hyphen, ≤63 chars
-        AND length(subdomain) <= 63
-        AND lower(subdomain) ~ $$^[a-z][a-z0-9-]*[a-z0-9]?$$
+        -- Exclude subdomains with RFC 1035 uncompliant labels
+        -- "The labels must follow the rules for ARPANET host names.
+        --  They must start with a letter, end with a letter or digit, and have as interior characters only letters, digits, and hyphen.
+        --  There are also some restrictions on the length. Labels must be 63 characters or less."
+        AND lower(subdomain) ~ $re$^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$$re$
     );
 
