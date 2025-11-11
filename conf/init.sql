@@ -337,3 +337,103 @@ WHERE
         AND lower(subdomain) ~ $re$^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$$re$
     );
 
+CREATE VIEW stats_leftmost_removed_by_cleaning AS 
+WITH classified AS (
+    SELECT
+        subdomain,
+        CASE
+            -- 1. IP-like (hyphen separated)
+            WHEN subdomain ~ $$((0*(25[0-5]|2[0-4][0-9]|1[0-9]{2}|0*[0-9]{1,2}))-){3}0*(25[0-5]|2[0-4][0-9]|1[0-9]{2}|0*[0-9]{1,2})$$ THEN 1
+            -- 2. GUID (UUID-like)
+            WHEN subdomain ~ $$[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$$ THEN 2
+            -- 3. Hex-encoded 16-char
+            WHEN subdomain ~ $$[a-f0-9]{16}$$ THEN 3
+            -- 4. Alphanumeric 32-char
+            WHEN subdomain ~ $$[a-z0-9]{32}$$ THEN 4
+            -- 5. Null-byte artifacts
+            WHEN subdomain LIKE '%\x00%' THEN 5
+            -- 6. RFC1035 invalid
+            WHEN lower(subdomain) !~ $re$^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$$re$ THEN 6
+            ELSE NULL
+        END AS stage
+    FROM subdomains_leftmost_all_by_owner
+),
+counts AS (
+    SELECT
+        stage,
+        COUNT(*) AS matched
+    FROM classified
+    WHERE stage IS NOT NULL
+    GROUP BY stage
+),
+total AS (
+    SELECT COUNT(*)::numeric AS total_count FROM subdomains_leftmost_all_by_owner
+),
+ordered AS (
+    SELECT
+        stage,
+        CASE stage
+            WHEN 1 THEN 'IP-like (hyphen)'
+            WHEN 2 THEN 'GUID (UUID-like)'
+            WHEN 3 THEN 'Hex 16-char'
+            WHEN 4 THEN 'Alnum 32-char'
+            WHEN 5 THEN 'Null-byte artifacts'
+            WHEN 6 THEN 'RFC1035 invalid'
+        END AS exclusion,
+        matched
+    FROM counts
+)
+SELECT
+    stage,
+    exclusion,
+    matched,
+    ROUND(matched * 100.0 / t.total_count, 3) AS pct_of_total,
+    SUM(matched) OVER (ORDER BY stage) AS cumulative
+FROM ordered, total t
+ORDER BY stage;
+
+CREATE VIEW stats_leftmost_removed_by_zonesize_cutoff AS 
+WITH total AS (
+  SELECT COUNT(*)::numeric AS total_subdomains
+  FROM subdomains_leftmost_cleaned_by_etld
+),
+thresholds AS (
+  SELECT *
+  FROM (VALUES
+    (NULL::int, 'All (no cap)', 'Baseline'),
+    (10000, '10,000', 'Minimal'),
+    (5000,  '5,000',  'Light'),
+    (2500,  '2,500',  'Moderate'),
+    (1000,  '1,000',  'Strict'),
+    (500,   '500',    'Aggressive')
+  ) AS t(threshold, threshold_label, level)
+),
+exclusions AS (
+  SELECT
+    t.threshold,
+    t.threshold_label,
+    t.level,
+    COUNT(DISTINCT s.etld) FILTER (WHERE s.etld_count > t.threshold) AS domains_excluded,
+    COUNT(*) FILTER (WHERE s.etld_count > t.threshold) AS subdomains_excluded,
+    ROUND(
+      COUNT(*) FILTER (WHERE s.etld_count > t.threshold) * 100.0 /
+      (SELECT total_subdomains FROM total),
+      3
+    ) AS pct_excluded
+  FROM thresholds t
+  CROSS JOIN subdomains_leftmost_cleaned_by_etld s
+  GROUP BY t.threshold, t.threshold_label, t.level
+)
+SELECT
+  threshold_label AS "Threshold",
+  domains_excluded AS "Domains excluded",
+  subdomains_excluded AS "Subdomains excluded",
+  pct_excluded || '%' AS "% of dataset",
+  level AS "Level"
+FROM exclusions
+ORDER BY
+  CASE
+    WHEN threshold IS NULL THEN 0
+    ELSE threshold
+  END DESC NULLS LAST;
+
