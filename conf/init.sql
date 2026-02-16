@@ -437,3 +437,30 @@ ORDER BY
     ELSE threshold
   END DESC NULLS LAST;
 
+CREATE VIEW nsec3_hashcat AS
+SELECT
+  rr.hashed_owner
+  || ':.' || trim(trailing '.' from regexp_replace(rr.owner, '^[^.]+\.', ''))
+  || ':' || lower(p.salt)
+  || ':' || p.iterations::text
+  AS hashcat_line
+FROM nsec3_resource_records rr
+JOIN nsec3_parameters p
+ON p.scan_id = rr.scan_id;
+
+CREATE MATERIALIZED VIEW subsubdomains_all_by_owner AS
+SELECT DISTINCT
+    n.owner,
+    array_to_string(parts[1:(array_length(parts, 1) - 3)], '.') AS subdomain
+FROM nsec_resource_records n
+CROSS JOIN LATERAL string_to_array(n.owner, '.') AS parts
+WHERE n.owner IS NOT NULL
+  AND array_length(parts, 1) >= 4;
+
+CREATE VIEW subsubdomains_all_by_occurrance AS
+SELECT
+    subdomain,
+    COUNT(*)
+FROM subsubdomains_all_by_owner
+GROUP BY subdomain
+ORDER BY count DESC, subdomain;
