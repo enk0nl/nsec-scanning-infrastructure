@@ -439,11 +439,11 @@ ORDER BY
 
 CREATE VIEW nsec3_hashcat AS
 SELECT
-  rr.hashed_owner
+  lower(split_part(trim(trailing '.' from rr.owner), '.', 1))
   || ':.' || trim(trailing '.' from regexp_replace(rr.owner, '^[^.]+\.', ''))
-  || ':' || lower(p.salt)
-  || ':' || p.iterations::text
-  AS hashcat_line
+  || ':'  || lower(p.salt)
+  || ':'  || p.iterations::text
+AS hashcat_line
 FROM nsec3_resource_records rr
 JOIN nsec3_parameters p
 ON p.scan_id = rr.scan_id;
